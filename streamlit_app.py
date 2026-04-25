@@ -52,13 +52,13 @@ for sector, tickers in SECTORS.items():
                 signal = "🧨 弱势"
 
             rows.append({
-                "Ticker": t,
-                "Sector": sector,
-                "Change %": round(change*100,2),
-                "Volume": int(volume),
-                "Momentum": money_momentum,
-                "Signal": signal
-            })
+    "Ticker": t,
+    "Sector": sector,
+    "Change %": round(change * 100, 2),
+    "Volume": int(volume),
+    "Momentum": round(money_momentum / 1e6, 2),
+    "Signal": signal
+})
         except:
             pass
 
