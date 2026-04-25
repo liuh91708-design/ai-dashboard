@@ -3,7 +3,7 @@ import pandas as pd
 import yfinance as yf
 import plotly.express as px
 from datetime import datetime
-
+from streamlit_autorefresh import st_autorefresh
 st.set_page_config(page_title="Nasdaq 盯盘版 Dashboard", layout="wide")
 
 st.title("🚀 Nasdaq 盯盘版 Dashboard")
