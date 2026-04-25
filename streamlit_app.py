@@ -182,8 +182,7 @@ if mode == "只看机会":
 else:
     display_df = df
 
-st.dataframe(display_df.sort_values("Score", ascending=False), use_container_width=True),
-use_container_width=True)
+st.dataframe(display_df.sort_values("Score", ascending=False), use_container_width=True)
 
 # 市场结构图
 st.subheader("🧭 市场结构图")
