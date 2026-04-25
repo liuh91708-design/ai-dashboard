@@ -253,3 +253,16 @@ st.info("""
 
 注意：这不是机构真实净流入，只是基于价格和成交量的估算模型。
 """)
+st.subheader("📈 连续资金流（趋势跟踪）")
+
+trend_df = df.sort_values("Momentum", ascending=False).head(10)
+
+fig_trend = px.bar(
+    trend_df,
+    x="Ticker",
+    y="Momentum",
+    color="Sector",
+    title="当前资金最强10只"
+)
+
+st.plotly_chart(fig_trend, use_container_width=True)
