@@ -223,3 +223,10 @@ if alerts:
         st.warning(a)
 else:
     st.success("暂无强信号")
+st.subheader("🏆 今日最强机会")
+
+top_opportunities = display_df[
+    display_df["Signal"].isin(["🔥 强势流入"])
+].sort_values("Momentum", ascending=False).head(5)
+
+st.dataframe(top_opportunities, use_container_width=True)
