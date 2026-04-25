@@ -3,139 +3,90 @@ import pandas as pd
 import yfinance as yf
 import plotly.express as px
 
-st.set_page_config(page_title="Nasdaq Top30 Money Flow Dashboard", layout="wide")
+st.set_page_config(layout="wide")
 
-st.title("🚀 Nasdaq Top30 资金流 Dashboard")
-st.caption("数据来自 Yahoo Finance，仅供研究，不构成投资建议。")
+st.title("🚀 Nasdaq 资金流进阶版 Dashboard")
 
-TICKERS = [
-    "AAPL","MSFT","NVDA","GOOGL","GOOG","AMZN","META","AVGO","TSLA","COST",
-    "NFLX","AMD","PEP","ADBE","CSCO","TMUS","INTC","QCOM","TXN","AMAT",
-    "INTU","AMGN","ISRG","BKNG","VRTX","MU","LRCX","ADP","ADI","PANW"
-]
+# 分组（关键升级）
+SECTORS = {
+    "AI/半导体": ["NVDA", "AMD", "AVGO", "QCOM", "TXN"],
+    "云计算": ["MSFT", "AMZN", "GOOGL"],
+    "平台/消费": ["AAPL", "META", "NFLX"],
+    "其他": ["TSLA"]
+}
 
-period = st.sidebar.selectbox(
-    "选择周期",
-    ["5d", "1mo", "3mo", "6mo", "1y"],
-    index=1
-)
+ALL_TICKERS = sum(SECTORS.values(), [])
 
-selected = st.sidebar.multiselect(
-    "选择股票",
-    TICKERS,
-    default=["AAPL", "MSFT", "NVDA", "AMZN", "META", "TSLA"]
-)
+period = st.sidebar.selectbox("周期", ["5d","1mo","3mo","6mo"], index=1)
 
-@st.cache_data(ttl=900)
-def load_data(tickers, period):
-    data = yf.download(
-        tickers,
-        period=period,
-        group_by="ticker",
-        auto_adjust=True,
-        progress=False
-    )
-    return data
+@st.cache_data(ttl=600)
+def load_data(tickers):
+    return yf.download(tickers, period=period, group_by="ticker", auto_adjust=True)
 
-if not selected:
-    st.warning("请至少选择一只股票")
-    st.stop()
-
-data = load_data(selected, period)
+data = load_data(ALL_TICKERS)
 
 rows = []
 
-for ticker in selected:
-    try:
-        df = data[ticker].dropna() if len(selected) > 1 else data.dropna()
+for sector, tickers in SECTORS.items():
+    for t in tickers:
+        try:
+            df = data[t].dropna()
 
-        if df.empty:
-            continue
+            close_now = df["Close"].iloc[-1]
+            close_prev = df["Close"].iloc[0]
+            volume = df["Volume"].iloc[-1]
 
-        close_now = df["Close"].iloc[-1]
-        close_prev = df["Close"].iloc[0]
-        volume_now = df["Volume"].iloc[-1]
+            change = (close_now/close_prev - 1)
 
-        change_pct = (close_now / close_prev - 1) * 100
-        money_flow = close_now * volume_now
+            # 👉 核心升级：资金动量
+            money_momentum = change * volume
 
-        rows.append({
-            "Ticker": ticker,
-            "Price": round(close_now, 2),
-            "Change %": round(change_pct, 2),
-            "Volume": int(volume_now),
-            "Money Flow": round(money_flow / 1e9, 2)
-        })
+            # 👉 信号分类
+            if change > 0 and volume > df["Volume"].mean():
+                signal = "🔥 强势流入"
+            elif change < 0 and volume > df["Volume"].mean():
+                signal = "⚠️ 出货"
+            elif change > 0:
+                signal = "💤 弱上涨"
+            else:
+                signal = "🧨 弱势"
 
-    except Exception:
-        pass
+            rows.append({
+                "Ticker": t,
+                "Sector": sector,
+                "Change %": round(change*100,2),
+                "Volume": int(volume),
+                "Momentum": money_momentum,
+                "Signal": signal
+            })
+        except:
+            pass
 
-summary = pd.DataFrame(rows)
+df = pd.DataFrame(rows)
 
-if summary.empty:
-    st.error("数据获取失败，请刷新页面或稍后再试。")
-    st.stop()
+# ===== 板块资金 =====
+sector_flow = df.groupby("Sector")["Momentum"].sum().reset_index()
 
-col1, col2, col3 = st.columns(3)
+st.subheader("🏦 板块资金流")
 
-col1.metric("股票数量", len(summary))
-col2.metric("最大涨幅", f"{summary['Change %'].max():.2f}%")
-col3.metric("最大资金流", f"{summary['Money Flow'].max():.2f}B")
+fig_sector = px.bar(sector_flow, x="Sector", y="Momentum", text="Momentum")
+st.plotly_chart(fig_sector, use_container_width=True)
 
-st.subheader("📊 Nasdaq Top30 概览")
-st.dataframe(summary.sort_values("Money Flow", ascending=False), use_container_width=True)
+# ===== 个股 =====
+st.subheader("📊 个股资金信号")
 
-st.subheader("💰 资金流排名")
-fig_flow = px.bar(
-    summary.sort_values("Money Flow", ascending=False),
-    x="Ticker",
-    y="Money Flow",
-    text="Money Flow",
-    title="成交金额估算：Price × Volume（十亿美元）"
-)
-st.plotly_chart(fig_flow, use_container_width=True)
+st.dataframe(df.sort_values("Momentum", ascending=False), use_container_width=True)
 
-st.subheader("📈 涨跌幅对比")
-fig_change = px.bar(
-    summary.sort_values("Change %", ascending=False),
-    x="Ticker",
-    y="Change %",
-    text="Change %",
-    title="周期涨跌幅"
-)
-st.plotly_chart(fig_change, use_container_width=True)
+# ===== 散点 =====
+st.subheader("🧭 市场结构")
 
-st.subheader("🧭 市场强弱象限图")
-fig_scatter = px.scatter(
-    summary,
+fig = px.scatter(
+    df,
     x="Change %",
-    y="Money Flow",
+    y="Momentum",
+    color="Sector",
     size="Volume",
     hover_name="Ticker",
-    text="Ticker",
-    title="涨跌幅 × 资金流"
+    text="Ticker"
 )
-fig_scatter.update_traces(textposition="top center")
-st.plotly_chart(fig_scatter, use_container_width=True)
-
-st.subheader("📌 简单交易观察")
-
-leaders = summary.sort_values("Money Flow", ascending=False).head(5)
-strong = summary[summary["Change %"] > 0].sort_values("Money Flow", ascending=False).head(5)
-weak = summary[summary["Change %"] < 0].sort_values("Money Flow", ascending=False).head(5)
-
-c1, c2, c3 = st.columns(3)
-
-with c1:
-    st.markdown("### 🔥 资金流最大")
-    st.dataframe(leaders[["Ticker", "Money Flow", "Change %"]], use_container_width=True)
-
-with c2:
-    st.markdown("### ✅ 放量上涨")
-    st.dataframe(strong[["Ticker", "Money Flow", "Change %"]], use_container_width=True)
-
-with c3:
-    st.markdown("### ⚠️ 放量下跌")
-    st.dataframe(weak[["Ticker", "Money Flow", "Change %"]], use_container_width=True)
-
-st.info("提示：资金流这里只是用 Price × Volume 做的成交金额估算，不是真正机构净流入。真正净流入需要更专业的数据源。")
+st.plotly_chart(fig, use_container_width=True)
