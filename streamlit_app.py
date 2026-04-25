@@ -2,10 +2,11 @@ import streamlit as st
 import pandas as pd
 import yfinance as yf
 import plotly.express as px
+from datetime import datetime
 
-st.set_page_config(page_title="Nasdaq 交易监控 Dashboard", layout="wide")
+st.set_page_config(page_title="Nasdaq 盯盘版 Dashboard", layout="wide")
 
-st.title("🚀 Nasdaq 交易监控 Dashboard")
+st.title("🚀 Nasdaq 盯盘版 Dashboard")
 st.caption("资金流为估算指标：涨跌幅 × 成交量，仅供研究，不构成投资建议。")
 
 SECTORS = {
@@ -22,12 +23,22 @@ ALL_TICKERS = sorted(list(set(sum(SECTORS.values(), []))))
 INDEX_TICKERS = ["QQQ", "SPY"]
 
 period = st.sidebar.selectbox("周期", ["5d", "1mo", "3mo", "6mo", "1y"], index=1)
-mode = st.sidebar.radio("查看模式", ["全部", "只看机会"])
+
+mode = st.sidebar.radio(
+    "查看模式",
+    ["全部", "只看机会", "只看风险"],
+    index=0
+)
+
 signal_filter = st.sidebar.multiselect(
     "筛选信号",
     ["🔥 强势流入", "⚠️ 放量下跌", "💤 弱上涨", "🧨 弱势"],
     default=["🔥 强势流入", "⚠️ 放量下跌", "💤 弱上涨", "🧨 弱势"]
 )
+
+min_change = st.sidebar.slider("最小涨跌幅绝对值 (%)", 0.0, 20.0, 0.0, 0.5)
+
+refresh = st.sidebar.button("🔄 手动刷新数据")
 
 @st.cache_data(ttl=600)
 def load_data(tickers, period):
@@ -38,6 +49,9 @@ def load_data(tickers, period):
         auto_adjust=True,
         progress=False
     )
+
+if refresh:
+    st.cache_data.clear()
 
 def get_single_df(data, ticker):
     if isinstance(data.columns, pd.MultiIndex):
@@ -59,8 +73,8 @@ for sector, tickers in SECTORS.items():
             avg_volume = df0["Volume"].mean()
 
             change = close_now / close_prev - 1
-            money_momentum = change * volume
             volume_ratio = volume / avg_volume
+            money_momentum = change * volume
 
             if change > 0 and volume_ratio > 1:
                 signal = "🔥 强势流入"
@@ -94,9 +108,15 @@ if df.empty:
     st.stop()
 
 filtered_df = df[df["Signal"].isin(signal_filter)]
+filtered_df = filtered_df[filtered_df["Change %"].abs() >= min_change]
 
-# 指数对照
+if mode == "只看机会":
+    filtered_df = filtered_df[filtered_df["Signal"] == "🔥 强势流入"]
+elif mode == "只看风险":
+    filtered_df = filtered_df[filtered_df["Signal"] == "⚠️ 放量下跌"]
+
 index_rows = []
+
 for idx in INDEX_TICKERS:
     try:
         idx_df = get_single_df(data, idx)
@@ -111,7 +131,8 @@ for idx in INDEX_TICKERS:
 index_df = pd.DataFrame(index_rows)
 
 st.subheader("📌 市场基准")
-c1, c2, c3 = st.columns(3)
+
+c1, c2, c3, c4 = st.columns(4)
 
 if not index_df.empty:
     qqq_change = index_df[index_df["Index"] == "QQQ"]["Change %"].iloc[0]
@@ -123,69 +144,91 @@ else:
     c2.metric("SPY", "N/A")
 
 strong_count = len(df[df["Signal"] == "🔥 强势流入"])
-weak_count = len(df[df["Signal"] == "⚠️ 放量下跌"])
-c3.metric("强势 / 放量下跌", f"{strong_count} / {weak_count}")
+risk_count = len(df[df["Signal"] == "⚠️ 放量下跌"])
 
-# 板块资金
+c3.metric("强势 / 风险", f"{strong_count} / {risk_count}")
+c4.metric("更新时间", datetime.now().strftime("%H:%M:%S"))
+
 sector_flow = df.groupby("Sector")["Momentum"].sum().reset_index()
 
 st.subheader("🏦 板块资金流（百万单位）")
+
 fig_sector = px.bar(
     sector_flow.sort_values("Momentum", ascending=False),
     x="Sector",
     y="Momentum",
-    text="Momentum"
+    text="Momentum",
+    title="板块资金动量"
 )
 st.plotly_chart(fig_sector, use_container_width=True)
 
-# 市场结论
 st.subheader("🧠 自动市场结论")
 
 top_sector = sector_flow.sort_values("Momentum", ascending=False).iloc[0]
 total_flow = sector_flow["Momentum"].sum()
 
-if total_flow > 0 and strong_count > weak_count:
-    mood = "风险偏好（Risk ON）"
-elif total_flow < 0 and weak_count > strong_count:
-    mood = "风险规避（Risk OFF）"
+if total_flow > 0 and strong_count > risk_count:
+    market_status = "风险偏好（Risk ON）"
+elif total_flow < 0 and risk_count > strong_count:
+    market_status = "风险规避（Risk OFF）"
 else:
-    mood = "分化震荡"
+    market_status = "分化震荡"
 
 st.success(f"""
-🔥 主导板块：{top_sector['Sector']}
+🔥 主导板块：{top_sector["Sector"]}
 
-📊 市场状态：{mood}
+📊 市场状态：{market_status}
 
-👉 当前资金主要集中在 **{top_sector['Sector']}**。
+👉 当前资金主要集中在 **{top_sector["Sector"]}**。
 """)
 
-# 今日重点标的
+st.subheader("🚨 实时预警")
+
+alerts = []
+
+for _, row in df.iterrows():
+    if row["Signal"] == "🔥 强势流入" and row["Change %"] >= 3:
+        alerts.append(f"🔥 {row['Ticker']} 强势流入：涨幅 {row['Change %']}%，量能倍率 {row['Volume Ratio']}")
+
+    if row["Signal"] == "⚠️ 放量下跌" and row["Change %"] <= -3:
+        alerts.append(f"⚠️ {row['Ticker']} 放量下跌：跌幅 {row['Change %']}%，量能倍率 {row['Volume Ratio']}")
+
+if alerts:
+    for alert in alerts:
+        st.warning(alert)
+else:
+    st.info("暂无强预警信号。")
+
 st.subheader("🎯 今日重点标的")
 
-top_long = df[df["Signal"] == "🔥 强势流入"].sort_values("Score", ascending=False).head(5)
-top_risk = df[df["Signal"] == "⚠️ 放量下跌"].sort_values("Momentum").head(5)
+top_opportunities = df[df["Signal"] == "🔥 强势流入"].sort_values("Score", ascending=False).head(5)
+top_risks = df[df["Signal"] == "⚠️ 放量下跌"].sort_values("Momentum", ascending=True).head(5)
 
 left, right = st.columns(2)
 
 with left:
-    st.markdown("### 🔥 候选做多 / 强势观察")
-    st.dataframe(top_long[["Ticker", "Sector", "Change %", "Volume Ratio", "Momentum", "Score"]], use_container_width=True)
+    st.markdown("### 🔥 Top 机会榜")
+    st.dataframe(
+        top_opportunities[["Ticker", "Sector", "Price", "Change %", "Volume Ratio", "Momentum", "Score"]],
+        use_container_width=True
+    )
 
 with right:
-    st.markdown("### ⚠️ 风险 / 出货观察")
-    st.dataframe(top_risk[["Ticker", "Sector", "Change %", "Volume Ratio", "Momentum", "Score"]], use_container_width=True)
+    st.markdown("### ⚠️ Top 风险榜")
+    st.dataframe(
+        top_risks[["Ticker", "Sector", "Price", "Change %", "Volume Ratio", "Momentum", "Score"]],
+        use_container_width=True
+    )
 
-# 个股表格
 st.subheader("📊 个股资金信号")
-if mode == "只看机会":
-    display_df = df[df["Signal"].isin(["🔥 强势流入", "⚠️ 放量下跌"])]
-else:
-    display_df = df
 
-st.dataframe(display_df.sort_values("Score", ascending=False), use_container_width=True)
+st.dataframe(
+    filtered_df.sort_values("Score", ascending=False),
+    use_container_width=True
+)
 
-# 市场结构图
 st.subheader("🧭 市场结构图")
+
 fig = px.scatter(
     filtered_df,
     x="Change %",
@@ -196,44 +239,17 @@ fig = px.scatter(
     text="Ticker",
     title="涨跌幅 × 资金动量 × 成交量倍率"
 )
+
 fig.update_traces(textposition="top center")
 st.plotly_chart(fig, use_container_width=True)
 
-# 信号说明
 st.info("""
 信号解释：
+
 🔥 强势流入 = 上涨 + 成交量高于均量  
 ⚠️ 放量下跌 = 下跌 + 成交量高于均量  
 💤 弱上涨 = 上涨但量能一般  
 🧨 弱势 = 下跌且缺乏强势资金  
+
+注意：这不是机构真实净流入，只是基于价格和成交量的估算模型。
 """)
-st.subheader("🚨 实时预警")
-
-alerts = []
-
-for _, row in df.iterrows():
-    if row["Signal"] == "🔥 强势流入" and row["Change %"] > 3:
-        alerts.append(f"🔥 {row['Ticker']} 强势上涨 + 放量")
-
-    if row["Signal"] == "⚠️ 放量下跌" and row["Change %"] < -3:
-        alerts.append(f"⚠️ {row['Ticker']} 放量下跌（可能出货）")
-
-if alerts:
-    for a in alerts:
-        st.warning(a)
-else:
-    st.success("暂无强信号")
-st.subheader("🏆 今日最强机会")
-
-top_opportunities = display_df[
-    display_df["Signal"].isin(["🔥 强势流入"])
-].sort_values("Momentum", ascending=False).head(5)
-
-st.dataframe(top_opportunities, use_container_width=True)
-st.subheader("⚠️ 风险提示")
-
-risk_df = display_df[
-    display_df["Signal"].isin(["⚠️ 放量下跌"])
-].sort_values("Momentum").head(5)
-
-st.dataframe(risk_df, use_container_width=True)
