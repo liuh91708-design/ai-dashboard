@@ -22,6 +22,7 @@ ALL_TICKERS = sorted(list(set(sum(SECTORS.values(), []))))
 INDEX_TICKERS = ["QQQ", "SPY"]
 
 period = st.sidebar.selectbox("周期", ["5d", "1mo", "3mo", "6mo", "1y"], index=1)
+mode = st.sidebar.radio("查看模式", ["全部", "只看机会"])
 signal_filter = st.sidebar.multiselect(
     "筛选信号",
     ["🔥 强势流入", "⚠️ 放量下跌", "💤 弱上涨", "🧨 弱势"],
@@ -176,8 +177,12 @@ with right:
 
 # 个股表格
 st.subheader("📊 个股资金信号")
-st.dataframe(
-    filtered_df.sort_values("Score", ascending=False),
+if mode == "只看机会":
+    display_df = df[df["Signal"].isin(["🔥 强势流入", "⚠️ 放量下跌"])]
+else:
+    display_df = df
+
+st.dataframe(display_df.sort_values("Score", ascending=False), use_container_width=True),
     use_container_width=True
 )
 
