@@ -39,7 +39,7 @@ for sector, tickers in SECTORS.items():
             change = (close_now/close_prev - 1)
 
             # 👉 核心升级：资金动量
-            "Momentum": money_momentum / 1e6, = change * volume
+            "Momentum": money_momentum / 1e6, 
 
             # 👉 信号分类
             if change > 0 and volume > df["Volume"].mean():
