@@ -39,7 +39,7 @@ for sector, tickers in SECTORS.items():
             change = (close_now/close_prev - 1)
 
             # 👉 核心升级：资金动量
-            money_momentum = change * volume
+            "Momentum": money_momentum / 1e6, = change * volume
 
             # 👉 信号分类
             if change > 0 and volume > df["Volume"].mean():
@@ -68,7 +68,23 @@ df = pd.DataFrame(rows)
 sector_flow = df.groupby("Sector")["Momentum"].sum().reset_index()
 
 st.subheader("🏦 板块资金流")
+st.subheader("🧠 市场结论")
 
+top_sector = sector_flow.sort_values("Momentum", ascending=False).iloc[0]
+total_flow = sector_flow["Momentum"].sum()
+
+if total_flow > 0:
+    mood = "风险偏好（Risk ON）"
+else:
+    mood = "风险规避（Risk OFF）"
+
+st.success(f"""
+🔥 主导板块：{top_sector['Sector']}
+
+📊 资金状态：{mood}
+
+👉 解读：资金正在向 {top_sector['Sector']} 集中
+""")
 fig_sector = px.bar(sector_flow, x="Sector", y="Momentum", text="Momentum")
 st.plotly_chart(fig_sector, use_container_width=True)
 
