@@ -113,3 +113,17 @@ fig = px.scatter(
 )
 fig.update_traces(textposition="top center")
 st.plotly_chart(fig, use_container_width=True)
+st.subheader("🎯 今日重点标的")
+
+top_long = df[(df["Signal"] == "🔥 强势流入")].sort_values("Momentum", ascending=False).head(3)
+top_short = df[(df["Signal"] == "⚠️ 出货")].sort_values("Momentum", ascending=False).head(3)
+
+c1, c2 = st.columns(2)
+
+with c1:
+    st.markdown("### 🔥 候选做多")
+    st.dataframe(top_long[["Ticker","Change %","Momentum"]])
+
+with c2:
+    st.markdown("### ⚠️ 风险/做空观察")
+    st.dataframe(top_short[["Ticker","Change %","Momentum"]])
