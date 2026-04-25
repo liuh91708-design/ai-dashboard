@@ -204,3 +204,19 @@ st.info("""
 💤 弱上涨 = 上涨但量能一般  
 🧨 弱势 = 下跌且缺乏强势资金  
 """)
+st.subheader("🚨 实时预警")
+
+alerts = []
+
+for _, row in df.iterrows():
+    if row["Signal"] == "🔥 强势流入" and row["Change %"] > 3:
+        alerts.append(f"🔥 {row['Ticker']} 强势上涨 + 放量")
+
+    if row["Signal"] == "⚠️ 放量下跌" and row["Change %"] < -3:
+        alerts.append(f"⚠️ {row['Ticker']} 放量下跌（可能出货）")
+
+if alerts:
+    for a in alerts:
+        st.warning(a)
+else:
+    st.success("暂无强信号")
