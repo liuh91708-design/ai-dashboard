@@ -8,7 +8,12 @@ st.set_page_config(page_title="Nasdaq 盯盘版 Dashboard", layout="wide")
 
 st.title("🚀 Nasdaq 盯盘版 Dashboard")
 st.caption("资金流为估算指标：涨跌幅 × 成交量，仅供研究，不构成投资建议。")
+refresh_minutes = st.sidebar.slider("自动刷新间隔（分钟）", 1, 30, 5)
 
+st_autorefresh(
+    interval=refresh_minutes * 60 * 1000,
+    key="auto_refresh"
+)
 SECTORS = {
     "AI/半导体": ["NVDA", "AMD", "AVGO", "QCOM", "TXN", "MU", "AMAT", "LRCX", "ADI"],
     "云计算/软件": ["MSFT", "AMZN", "GOOGL", "ADBE", "INTU", "PANW"],
