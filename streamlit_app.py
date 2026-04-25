@@ -1,13 +1,17 @@
-import streamlit as st
-import pandas as pd
-import yfinance as yf
-import plotly.express as px
+import os
 from datetime import datetime
 
-st.set_page_config(page_title="Nasdaq 趋势评分盯盘版", layout="wide")
+import pandas as pd
+import plotly.express as px
+import streamlit as st
+import yfinance as yf
 
-st.title("🚀 Nasdaq 趋势评分盯盘版 Dashboard")
+st.set_page_config(page_title="Nasdaq 自动记录盯盘版", layout="wide")
+
+st.title("🚀 Nasdaq 自动记录 + 趋势评分盯盘版")
 st.caption("资金流、趋势评分为估算模型，仅供研究，不构成投资建议。")
+
+LOG_FILE = "signals_log.csv"
 
 SECTORS = {
     "AI/半导体": ["NVDA", "AMD", "AVGO", "QCOM", "TXN", "MU", "AMAT", "LRCX", "ADI"],
@@ -16,37 +20,32 @@ SECTORS = {
     "电动车/成长": ["TSLA"],
     "防御/消费": ["COST", "PEP"],
     "医疗科技": ["AMGN", "ISRG", "VRTX"],
-    "通信/网络": ["CSCO", "TMUS"]
+    "通信/网络": ["CSCO", "TMUS"],
 }
 
 ALL_TICKERS = sorted(list(set(sum(SECTORS.values(), []))))
 INDEX_TICKERS = ["QQQ", "SPY"]
 
 period = st.sidebar.selectbox("周期", ["5d", "1mo", "3mo", "6mo", "1y"], index=1)
-
-mode = st.sidebar.radio(
-    "查看模式",
-    ["全部", "只看机会", "只看风险", "只看强趋势"],
-    index=0
-)
+mode = st.sidebar.radio("查看模式", ["全部", "只看机会", "只看风险", "只看强趋势"], index=0)
 
 signal_filter = st.sidebar.multiselect(
     "筛选信号",
     ["🔥 强势流入", "⚠️ 放量下跌", "💤 弱上涨", "🧨 弱势"],
-    default=["🔥 强势流入", "⚠️ 放量下跌", "💤 弱上涨", "🧨 弱势"]
+    default=["🔥 强势流入", "⚠️ 放量下跌", "💤 弱上涨", "🧨 弱势"],
 )
 
 min_change = st.sidebar.slider("最小涨跌幅绝对值 (%)", 0.0, 20.0, 0.0, 0.5)
 refresh = st.sidebar.button("🔄 手动刷新数据")
 
 @st.cache_data(ttl=600)
-def load_data(tickers, period):
+def load_data(tickers, selected_period):
     return yf.download(
         tickers,
-        period=period,
+        period=selected_period,
         group_by="ticker",
         auto_adjust=True,
-        progress=False
+        progress=False,
     )
 
 if refresh:
@@ -138,7 +137,7 @@ for sector, tickers in SECTORS.items():
                 "Trend Score": round(trend_score, 2),
                 "Risk Score": round(risk_score, 2),
                 "Score": round(score, 2),
-                "Signal": signal
+                "Signal": signal,
             })
 
         except Exception:
@@ -150,6 +149,74 @@ if df.empty:
     st.error("数据获取失败，请刷新页面或稍后再试。")
     st.stop()
 
+# 策略信号
+buy_candidates = df[
+    (df["Signal"] == "🔥 强势流入")
+    & (df["Trend Score"] > 20)
+    & (df["Change %"] > 1)
+].sort_values("Score", ascending=False).head(5)
+
+sell_candidates = df[
+    (df["Signal"] == "⚠️ 放量下跌")
+    & (df["Risk Score"] > 10)
+].sort_values("Risk Score", ascending=False).head(5)
+
+# 自动记录信号
+today = datetime.now().strftime("%Y-%m-%d")
+now_time = datetime.now().strftime("%H:%M:%S")
+
+log_rows = []
+
+for _, row in buy_candidates.iterrows():
+    log_rows.append({
+        "Date": today,
+        "Time": now_time,
+        "Type": "BUY_WATCH",
+        "Ticker": row["Ticker"],
+        "Sector": row["Sector"],
+        "Price": row["Price"],
+        "Change %": row["Change %"],
+        "Trend Score": row["Trend Score"],
+        "Risk Score": row["Risk Score"],
+        "Score": row["Score"],
+        "Signal": row["Signal"],
+    })
+
+for _, row in sell_candidates.iterrows():
+    log_rows.append({
+        "Date": today,
+        "Time": now_time,
+        "Type": "RISK_WATCH",
+        "Ticker": row["Ticker"],
+        "Sector": row["Sector"],
+        "Price": row["Price"],
+        "Change %": row["Change %"],
+        "Trend Score": row["Trend Score"],
+        "Risk Score": row["Risk Score"],
+        "Score": row["Score"],
+        "Signal": row["Signal"],
+    })
+
+new_log = pd.DataFrame(log_rows)
+
+if os.path.exists(LOG_FILE):
+    old_log = pd.read_csv(LOG_FILE)
+else:
+    old_log = pd.DataFrame()
+
+if not new_log.empty:
+    combined_log = pd.concat([old_log, new_log], ignore_index=True)
+
+    combined_log = combined_log.drop_duplicates(
+        subset=["Date", "Type", "Ticker"],
+        keep="last"
+    )
+
+    combined_log.to_csv(LOG_FILE, index=False)
+else:
+    combined_log = old_log
+
+# 筛选表
 filtered_df = df[df["Signal"].isin(signal_filter)]
 filtered_df = filtered_df[filtered_df["Change %"].abs() >= min_change]
 
@@ -160,6 +227,7 @@ elif mode == "只看风险":
 elif mode == "只看强趋势":
     filtered_df = filtered_df[filtered_df["Trend Score"] > 20]
 
+# 指数
 index_rows = []
 
 for idx in INDEX_TICKERS:
@@ -168,7 +236,7 @@ for idx in INDEX_TICKERS:
         idx_change = idx_df["Close"].iloc[-1] / idx_df["Close"].iloc[0] - 1
         index_rows.append({
             "Index": idx,
-            "Change %": round(idx_change * 100, 2)
+            "Change %": round(idx_change * 100, 2),
         })
     except Exception:
         pass
@@ -204,7 +272,7 @@ fig_sector = px.bar(
     x="Sector",
     y="Momentum",
     text="Momentum",
-    title="板块资金动量"
+    title="板块资金动量",
 )
 st.plotly_chart(fig_sector, use_container_width=True)
 
@@ -215,7 +283,7 @@ fig_sector_trend = px.bar(
     x="Sector",
     y="Trend Score",
     text="Trend Score",
-    title="板块平均趋势评分"
+    title="板块平均趋势评分",
 )
 st.plotly_chart(fig_sector_trend, use_container_width=True)
 
@@ -245,6 +313,24 @@ st.success(f"""
 👉 当前市场重点观察 **{top_sector["Sector"]}** 与 **{top_trend_sector["Sector"]}**。
 """)
 
+st.subheader("🟢 策略信号")
+
+left_exec, right_exec = st.columns(2)
+
+with left_exec:
+    st.markdown("### 🟢 买入观察")
+    st.dataframe(
+        buy_candidates[["Ticker", "Sector", "Price", "Change %", "Trend Score", "Score", "Signal"]],
+        use_container_width=True,
+    )
+
+with right_exec:
+    st.markdown("### 🔴 风险/卖出观察")
+    st.dataframe(
+        sell_candidates[["Ticker", "Sector", "Price", "Change %", "Risk Score", "Score", "Signal"]],
+        use_container_width=True,
+    )
+
 st.subheader("🚨 实时预警")
 
 alerts = []
@@ -262,6 +348,29 @@ if alerts:
 else:
     st.info("暂无强预警信号。")
 
+st.subheader("📒 自动记录 / 信号复盘")
+
+r1, r2, r3 = st.columns(3)
+r1.metric("今日买入观察", len(buy_candidates))
+r2.metric("今日风险观察", len(sell_candidates))
+r3.metric("累计记录", len(combined_log) if not combined_log.empty else 0)
+
+if not combined_log.empty:
+    st.dataframe(
+        combined_log.sort_values(["Date", "Time"], ascending=False),
+        use_container_width=True,
+    )
+
+    csv = combined_log.to_csv(index=False).encode("utf-8-sig")
+    st.download_button(
+        "下载信号记录 CSV",
+        data=csv,
+        file_name="signals_log.csv",
+        mime="text/csv",
+    )
+else:
+    st.info("暂无历史记录。")
+
 st.subheader("🎯 今日重点标的")
 
 top_opportunities = df[df["Signal"] == "🔥 强势流入"].sort_values("Score", ascending=False).head(5)
@@ -274,28 +383,28 @@ with left:
     st.markdown("### 🔥 Top 机会榜")
     st.dataframe(
         top_opportunities[["Ticker", "Sector", "Price", "Change %", "Volume Ratio", "Momentum", "Trend Score", "Score"]],
-        use_container_width=True
+        use_container_width=True,
     )
 
 with middle:
     st.markdown("### 📈 Top 趋势榜")
     st.dataframe(
         top_trends[["Ticker", "Sector", "Price", "Change %", "Trend", "Up Days(5)", "Trend Score"]],
-        use_container_width=True
+        use_container_width=True,
     )
 
 with right:
     st.markdown("### ⚠️ Top 风险榜")
     st.dataframe(
         top_risks[["Ticker", "Sector", "Price", "Change %", "Down Days(5)", "Risk Score"]],
-        use_container_width=True
+        use_container_width=True,
     )
 
 st.subheader("📊 个股资金与趋势信号")
 
 st.dataframe(
     filtered_df.sort_values("Score", ascending=False),
-    use_container_width=True
+    use_container_width=True,
 )
 
 st.subheader("🧭 市场结构图")
@@ -308,7 +417,7 @@ fig = px.scatter(
     size="Volume Ratio",
     hover_name="Ticker",
     text="Ticker",
-    title="趋势评分 × 资金动量 × 成交量倍率"
+    title="趋势评分 × 资金动量 × 成交量倍率",
 )
 
 fig.update_traces(textposition="top center")
@@ -322,8 +431,8 @@ st.info("""
 💤 弱上涨 = 上涨但量能一般  
 🧨 弱势 = 下跌且缺乏强势资金  
 
-Trend Score 越高，代表短期连续性、趋势结构、量能配合越强。  
-Risk Score 越高，代表下跌连续性和放量风险越强。  
+BUY_WATCH = 买入观察，不等于买入建议。  
+RISK_WATCH = 风险观察，不等于做空建议。  
 
 注意：这不是机构真实净流入，也不是买卖建议，只是辅助观察模型。
 """)
