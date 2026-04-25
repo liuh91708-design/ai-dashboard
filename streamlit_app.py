@@ -230,3 +230,10 @@ top_opportunities = display_df[
 ].sort_values("Momentum", ascending=False).head(5)
 
 st.dataframe(top_opportunities, use_container_width=True)
+st.subheader("⚠️ 风险提示")
+
+risk_df = display_df[
+    display_df["Signal"].isin(["⚠️ 放量下跌"])
+].sort_values("Momentum").head(5)
+
+st.dataframe(risk_df, use_container_width=True)
