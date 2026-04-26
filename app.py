@@ -1,18 +1,8 @@
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh
 import yfinance as yf
 import pandas as pd
 
 st.set_page_config(layout="wide")
-
-AUTO_REFRESH_MS = 5 * 60 * 1000
-
-auto_refresh = st.sidebar.checkbox("每 5 分钟自动刷新", value=True)
-if auto_refresh:
-    st_autorefresh(interval=AUTO_REFRESH_MS, key="auto_refresh")
-    st.sidebar.caption("已开启：页面每 5 分钟自动更新一次。")
-else:
-    st.sidebar.caption("已关闭：需要手动刷新页面。")
 
 st.title("🚀 AI投资决策系统")
 
@@ -24,21 +14,12 @@ TICKERS = {
     "工业": ["ABB", "SI"],
 }
 
-@st.cache_data(ttl=300)
+@st.cache_data
 def load_data(ticker):
-    return yf.download(ticker, period="6mo", progress=False)
-
-def close_prices(df):
-    close = df["Close"]
-    if isinstance(close, pd.DataFrame):
-        close = close.iloc[:, 0]
-    return close.dropna()
+    return yf.download(ticker, period="6mo")
 
 def calc_return(df):
-    close = close_prices(df)
-    if close.empty:
-        return 0.0
-    return float(close.iloc[-1] / close.iloc[0] - 1)
+    return (df["Close"].iloc[-1] / df["Close"].iloc[0] - 1)
 
 # 板块强度计算
 st.subheader("📊 板块强度")
@@ -79,4 +60,4 @@ for sector, stocks in TICKERS.items():
     st.write(f"### {sector}")
     for s in stocks:
         df = load_data(s)
-        st.line_chart(close_prices(df))
+        st.line_chart(df["Close"])
