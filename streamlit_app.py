@@ -3,6 +3,7 @@ from datetime import datetime
 import pandas as pd
 import plotly.express as px
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 import yfinance as yf
 
 st.set_page_config(page_title="Nasdaq 胜率系统版", layout="wide")
@@ -28,9 +29,14 @@ INDEX_TICKERS = ["QQQ", "SPY"]
 period = st.sidebar.selectbox("周期", ["5d", "1mo", "3mo", "6mo", "1y"], index=1)
 mode = st.sidebar.radio("查看模式", ["全部", "只看机会", "只看风险", "只看强趋势"], index=0)
 min_change = st.sidebar.slider("最小涨跌幅绝对值 (%)", 0.0, 20.0, 0.0, 0.5)
+auto_refresh = st.sidebar.checkbox("每 5 分钟自动刷新", value=True)
 refresh = st.sidebar.button("🔄 手动刷新数据")
 
-@st.cache_data(ttl=600)
+if auto_refresh:
+    st_autorefresh(interval=5 * 60 * 1000, key="nasdaq_auto_refresh")
+    st.sidebar.caption("已开启：每 5 分钟自动刷新。")
+
+@st.cache_data(ttl=300)
 def load_data(tickers, selected_period):
     return yf.download(
         tickers,
