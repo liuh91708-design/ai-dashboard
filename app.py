@@ -26,10 +26,19 @@ TICKERS = {
 
 @st.cache_data(ttl=300)
 def load_data(ticker):
-    return yf.download(ticker, period="6mo")
+    return yf.download(ticker, period="6mo", progress=False)
+
+def close_prices(df):
+    close = df["Close"]
+    if isinstance(close, pd.DataFrame):
+        close = close.iloc[:, 0]
+    return close.dropna()
 
 def calc_return(df):
-    return (df["Close"].iloc[-1] / df["Close"].iloc[0] - 1)
+    close = close_prices(df)
+    if close.empty:
+        return 0.0
+    return float(close.iloc[-1] / close.iloc[0] - 1)
 
 # 板块强度计算
 st.subheader("📊 板块强度")
@@ -70,4 +79,4 @@ for sector, stocks in TICKERS.items():
     st.write(f"### {sector}")
     for s in stocks:
         df = load_data(s)
-        st.line_chart(df["Close"])
+        st.line_chart(close_prices(df))
